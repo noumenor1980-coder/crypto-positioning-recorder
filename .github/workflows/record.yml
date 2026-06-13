@@ -1,0 +1,53 @@
+name: Record Crypto Positioning Data
+
+on:
+  schedule:
+    # Κάθε 15 λεπτά, με offset από την ώρα (αποφυγή congestion στο :00).
+    # ΠΡΟΣΟΧΗ: το cron του GitHub Actions είναι ΠΑΝΤΑ σε UTC.
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:        # επιτρέπει χειροκίνητη εκτέλεση από το tab "Actions"
+
+# Απαραίτητο: δίνει στο workflow δικαίωμα να κάνει commit τα δεδομένα.
+permissions:
+  contents: write
+
+# Σειριοποίηση: ποτέ δύο runs ταυτόχρονα (αποφυγή push conflict).
+concurrency:
+  group: recorder
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run recorder
+        # Τα Telegram secrets είναι ΠΡΟΑΙΡΕΤΙΚΑ (βλ. README). Αν δεν υπάρχουν,
+        # απλώς δεν στέλνεται ειδοποίηση — ο recorder δουλεύει κανονικά.
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python recorder.py
+
+      - name: Commit & push data
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          if git diff --staged --quiet; then
+            echo "Καμία αλλαγή για commit."
+          else
+            git commit -m "data: snapshot $(date -u +'%Y-%m-%dT%H:%MZ')"
+            git pull --rebase --autostash || true
+            git push
+          fi
